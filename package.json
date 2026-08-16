@@ -1,9 +1,10 @@
 {
-  "name": "lua-vault-netlify",
-  "version": "2.0.0",
-  "private": true,
-  "type": "module",
+  "name": "lua-vault",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "npm install"
+  },
   "dependencies": {
-    "@netlify/blobs": "^10.0.0"
+    "@netlify/blobs": "^8.1.0"
   }
 }
