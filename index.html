@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>Lua Vault</title>
+<style>
+* { box-sizing: border-box; }
+body { margin: 0; background: #0b0b0b; color: #eee; font-family: Arial, sans-serif; }
+.container { width: min(1100px, 94%); margin: 35px auto; }
+h1 { margin-bottom: 25px; }
+.panel { background: #151515; border: 1px solid #292929; border-radius: 12px; padding: 22px; margin-bottom: 20px; }
+input[type=file] { width: 100%; margin-bottom: 12px; }
+button { border: 1px solid #444; background: #222; color: #fff; padding: 10px 15px; border-radius: 7px; cursor: pointer; margin: 3px; }
+button:hover { background: #333; }
+.primary { background: #20a85a; border-color: #20a85a; color: #000; }
+.danger { border-color: #d33; color: #ff7777; }
+.file { background: #101010; border: 1px solid #292929; border-radius: 9px; padding: 15px; margin-bottom: 10px; }
+.file-name { font-weight: bold; word-break: break-all; }
+.file-id { color: #777; font-size: 12px; margin-top: 5px; word-break: break-all; }
+.actions { margin-top: 10px; }
+#editorPage { display: none; }
+.editor-title { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+textarea { width: 100%; min-height: 70vh; margin-top: 18px; padding: 18px; background: #080808; color: #ddd; border: 1px solid #333; border-radius: 9px; resize: vertical; font-family: monospace; font-size: 15px; line-height: 1.5; }
+.status { margin-top: 10px; color: #aaa; }
+</style>
+</head>
+<body>
+<div class="container">
+    <div id="mainPage">
+        <h1>Lua Vault</h1>
+        <div class="panel">
+            <h3>Upload New Lua File</h3>
+            <input type="file" id="uploadInput" accept=".lua,.txt">
+            <button class="primary" onclick="uploadNewFile()">Upload</button>
+            <div id="uploadStatus" class="status"></div>
+        </div>
+        <div class="panel">
+            <h3>Stored Files (<span id="fileCount">0</span>)</h3>
+            <div id="fileList">Loading...</div>
+        </div>
+    </div>
+    <div id="editorPage">
+        <div class="panel">
+            <div class="editor-title">
+                <div>
+                    <h2 id="editorFileName">Edit File</h2>
+                    <div id="editorFileId" class="file-id"></div>
+                </div>
+                <div>
+                    <button onclick="closeEditor()">Back</button>
+                    <button class="primary" onclick="saveChanges()">Save</button>
+                </div>
+            </div>
+            <textarea id="editor" spellcheck="false"></textarea>
+            <hr>
+            <h3>Replace Entire File</h3>
+            <input type="file" id="replaceInput" accept=".lua,.txt">
+            <button class="primary" onclick="replaceFile()">Replace File</button>
+            <div id="replaceStatus" class="status"></div>
+        </div>
+    </div>
+</div>
+<script>
+let files = [];
+let currentFileId = "";
+let currentFileName = "";
+
+async function api(url = "/api", options = {}) {
+    const response = await fetch(url, {
+        ...options,
+        headers: { "Content-Type": "application/json", ...(options.headers || {}) }
+    });
+    const text = await response.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = text; }
+    if (!response.ok) { throw new Error(data?.error || data || "Request failed"); }
+    return data;
+}
+
+async function loadFiles() {
+    const list = document.getElementById("fileList");
+    try {
+        const data = await api("/api");
+        files = Array.isArray(data.files) ? data.files : [];
+        document.getElementById("fileCount").textContent = files.length;
+        if (!files.length) { list.innerHTML = "<p>No files uploaded.</p>"; return; }
+        list.innerHTML = files.map(file => `
+            <div class="file">
+                <div class="file-name">${escapeHtml(file.name)}</div>
+                <div class="file-id">ID: ${escapeHtml(file.id)}</div>
+                <div class="actions">
+                    <button onclick="openRaw('${escapeJs(file.id)}')">Raw</button>
+                    <button onclick="downloadFile('${escapeJs(file.id)}','${escapeJs(file.name)}')">Download</button>
+                    <button class="primary" onclick="openEditor('${escapeJs(file.id)}','${escapeJs(file.name)}')">Edit</button>
+                    <button class="danger" onclick="deleteFile('${escapeJs(file.id)}')">Delete</button>
+                </div>
+            </div>
+        `).join("");
+    } catch (error) {
+        list.innerHTML = `<p style="color:#ff6666">${escapeHtml(error.message)}</p>`;
+    }
+}
+
+async function uploadNewFile() {
+    const input = document.getElementById("uploadInput");
+    const status = document.getElementById("uploadStatus");
+    const file = input.files[0];
+    if (!file) { status.textContent = "Select a file first."; return; }
+    status.textContent = "Uploading...";
+    try {
+        const content = await file.text();
+        await api("/api", { method: "POST", body: JSON.stringify({ name: file.name, content }) });
+        input.value = "";
+        status.textContent = "Upload successful.";
+        await loadFiles();
+    } catch (error) {
+        status.textContent = "Upload failed: " + error.message;
+    }
+}
+
+function openRaw(id) { window.open("/api?id=" + encodeURIComponent(id), "_blank"); }
+
+async function downloadFile(id, name) {
+    try {
+        const response = await fetch("/api?id=" + encodeURIComponent(id));
+        if (!response.ok) throw new Error("Download failed");
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = name;
+        document.body.appendChild(a); a.click(); a.remove();
+        URL.revokeObjectURL(url);
+    } catch (error) { alert(error.message); }
+}
+
+async function openEditor(id, name) {
+    currentFileId = id; currentFileName = name;
+    try {
+        const response = await fetch("/api?id=" + encodeURIComponent(id));
+        if (!response.ok) throw new Error("Unable to open file");
+        const content = await response.text();
+        document.getElementById("editorFileName").textContent = "Editing: " + name;
+        document.getElementById("editorFileId").textContent = "Raw ID: " + id;
+        document.getElementById("editor").value = content;
+        document.getElementById("mainPage").style.display = "none";
+        document.getElementById("editorPage").style.display = "block";
+        window.scrollTo(0, 0);
+    } catch (error) { alert(error.message); }
+}
+
+function closeEditor() {
+    document.getElementById("editorPage").style.display = "none";
+    document.getElementById("mainPage").style.display = "block";
+    currentFileId = ""; currentFileName = "";
+    document.getElementById("editor").value = "";
+    document.getElementById("replaceInput").value = "";
+}
+
+async function saveChanges() {
+    if (!currentFileId) return;
+    const content = document.getElementById("editor").value;
+    const status = document.getElementById("replaceStatus");
+    status.textContent = "Saving...";
+    try {
+        await api("/api", { method: "PUT", body: JSON.stringify({ id: currentFileId, name: currentFileName, content }) });
+        status.textContent = "Saved successfully.";
+    } catch (error) { status.textContent = "Save failed: " + error.message; }
+}
+
+async function replaceFile() {
+    if (!currentFileId) return;
+    const input = document.getElementById("replaceInput");
+    const status = document.getElementById("replaceStatus");
+    const file = input.files[0];
+    if (!file) { status.textContent = "Select replacement file."; return; }
+    status.textContent = "Replacing...";
+    try {
+        const content = await file.text();
+        await api("/api", { method: "PUT", body: JSON.stringify({ id: currentFileId, name: file.name, content }) });
+        currentFileName = file.name;
+        document.getElementById("editorFileName").textContent = "Editing: " + file.name;
+        document.getElementById("editor").value = content;
+        input.value = "";
+        status.textContent = "File replaced successfully.";
+        await loadFiles();
+    } catch (error) { status.textContent = "Replace failed: " + error.message; }
+}
+
+async function deleteFile(id) {
+    if (!confirm("Delete this file permanently?")) return;
+    try {
+        await api("/api", { method: "DELETE", body: JSON.stringify({ id }) });
+        await loadFiles();
+    } catch (error) { alert("Delete failed: " + error.message); }
+}
+
+function escapeHtml(value) {
+    return String(value).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+}
+function escapeJs(value) {
+    return String(value).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+}
+
+loadFiles();
+</script>
+</body>
+</html>
