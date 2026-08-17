@@ -86,11 +86,22 @@
     <script>
         const API_URL = '/.netlify/functions/api';
 
-        // Cache bypass function: Browser ko har baar fresh data laane pe majboor karega
+        // Chrome aur Netlify ki Cache ki maa-bahan ek karne wala function
         async function fetchLive(url, options = {}) {
-            const separator = url.includes('?') ? '&' : '?';
-            const liveUrl = `${url}${separator}_t=${Date.now()}`;
-            return fetch(liveUrl, { ...options, cache: 'no-store' });
+            const liveUrl = new URL(url, window.location.origin);
+            liveUrl.searchParams.append('_t', Date.now());
+            
+            const customHeaders = {
+                'Cache-Control': 'no-cache, no-store, must-revalidate',
+                'Pragma': 'no-cache',
+                'Expires': '0'
+            };
+
+            return fetch(liveUrl.toString(), { 
+                ...options, 
+                headers: { ...options.headers, ...customHeaders },
+                cache: 'no-store' 
+            });
         }
 
         function showToast(message, isError = false) {
@@ -185,7 +196,8 @@
                     fileInput.value = "";
                     showToast("Uploaded Successfully!");
                     
-                    setTimeout(() => loadFiles(), 500); 
+                    // Upload hone ke baad database ko sync hone ke liye 1.5 second dete hain
+                    setTimeout(() => loadFiles(), 1500); 
                 } catch (err) {
                     showToast("Upload Failed", true);
                 } finally {
@@ -245,7 +257,8 @@
                 if (!res.ok) throw new Error("Save failed");
                 
                 showToast("Updated Live!");
-                setTimeout(() => showDashboard(), 300);
+                // Edit hone ke baad backend ko thoda time denge
+                setTimeout(() => showDashboard(), 1000);
             } catch (err) {
                 showToast("Error updating file.", true);
             } finally {
@@ -254,25 +267,31 @@
             }
         }
 
+        // ====== YAHAN HAI ASLI JADOO (The Fix) ======
         async function deleteFile(id) {
             if (!confirm(`Are you sure you want to delete '${id}'?`)) return;
             
+            // 1. Delete dabate hi DOM se is row ko hamesha ke liye uda do
             const row = document.getElementById(`row-${id}`);
-            if(row) row.style.display = 'none';
+            if(row) row.remove();
             
             try {
+                // 2. Background mein API ko delete command bhej do
                 const res = await fetchLive(API_URL, { 
                     method: 'DELETE', 
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id }) 
                 });
+                
                 if (!res.ok) throw new Error("Delete failed");
                 
                 showToast("Deleted Successfully");
-                setTimeout(() => loadFiles(), 500); 
+                // 3. YAHAN PAR loadFiles() CALL NAHI KARENGE
+                // Database ko apne hisaab se update hone do, screen se toh item ud hi gaya hai.
             } catch (err) {
                 showToast("Delete Failed", true);
-                if(row) row.style.display = 'flex'; 
+                // Agar sach mein error aaya backend se, tab list wapas manga lenge
+                loadFiles(); 
             }
         }
 
