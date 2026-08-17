@@ -86,20 +86,12 @@
     <script>
         const API_URL = '/.netlify/functions/api';
 
-        // Chrome aur Netlify ki Cache ki maa-bahan ek karne wala function
         async function fetchLive(url, options = {}) {
             const liveUrl = new URL(url, window.location.origin);
             liveUrl.searchParams.append('_t', Date.now());
-            
-            const customHeaders = {
-                'Cache-Control': 'no-cache, no-store, must-revalidate',
-                'Pragma': 'no-cache',
-                'Expires': '0'
-            };
-
             return fetch(liveUrl.toString(), { 
                 ...options, 
-                headers: { ...options.headers, ...customHeaders },
+                headers: { ...options.headers, 'Cache-Control': 'no-cache, no-store', 'Pragma': 'no-cache' },
                 cache: 'no-store' 
             });
         }
@@ -108,11 +100,9 @@
             const toast = document.getElementById('toast');
             const msgEl = document.getElementById('toastMsg');
             const icon = document.getElementById('toastIcon');
-            
             toast.className = `fixed top-5 right-5 text-white px-6 py-3 rounded shadow-lg transform transition-transform duration-300 z-50 flex items-center ${isError ? 'bg-red-500' : 'bg-green-500'}`;
             icon.className = isError ? 'fa-solid fa-circle-exclamation mr-2' : 'fa-solid fa-circle-check mr-2';
             msgEl.innerText = message;
-            
             toast.classList.remove('translate-x-full');
             setTimeout(() => toast.classList.add('translate-x-full'), 2500);
         }
@@ -120,6 +110,7 @@
         function showDashboard() {
             document.getElementById('editView').classList.add('hidden');
             document.getElementById('dashboardView').classList.remove('hidden');
+            // Dashboard aane par list reload kar do (kyunki wahan Netlify cache set ho chuka hoga tab tak)
             loadFiles();
         }
 
@@ -142,7 +133,6 @@
         async function loadFiles(manualRefresh = false) {
             const listEl = document.getElementById('fileList');
             const refreshBtn = document.getElementById('refreshBtn');
-            
             if (manualRefresh) refreshBtn.innerHTML = '<i class="fa-solid fa-spinner spin"></i>';
 
             try {
@@ -173,6 +163,9 @@
             }
         }
 
+        // ==========================================
+        // YAHAN HAI UPLOAD WALA ASLI FIX (DOM MAGIC)
+        // ==========================================
         async function uploadFile() {
             const fileInput = document.getElementById('fileInput');
             const btn = document.getElementById('uploadBtn');
@@ -193,11 +186,32 @@
                     });
                     if (!res.ok) throw new Error("Upload failed");
                     
+                    const data = await res.json();
+                    const newId = data.id; // API se new ID nikal li
+                    
                     fileInput.value = "";
                     showToast("Uploaded Successfully!");
                     
-                    // Upload hone ke baad database ko sync hone ke liye 1.5 second dete hain
-                    setTimeout(() => loadFiles(), 1500); 
+                    // Netlify ki slow API ka wait kiye bina directly HTML me ghusao
+                    const listEl = document.getElementById('fileList');
+                    if (listEl.innerText.includes('No scripts found') || listEl.innerText.includes('Loading')) {
+                        listEl.innerHTML = ''; // Khali tha toh saaf kar do
+                    }
+                    
+                    const newRow = `
+                        <tr class="file-row hover:bg-slate-700/30 transition group flex flex-col md:flex-row justify-between items-center p-4 border-b border-slate-700/50" id="row-${newId}">
+                            <td class="font-mono text-cyan-400 font-bold text-lg select-all w-full md:w-auto mb-4 md:mb-0">${newId}</td>
+                            <td class="flex flex-wrap gap-2 justify-end w-full md:w-auto">
+                                <button onclick="copyRawLink('${newId}')" class="bg-purple-600/20 text-purple-400 hover:bg-purple-600 hover:text-white px-3 py-2 rounded transition text-sm"><i class="fa-solid fa-link mr-1"></i>Copy Link</button>
+                                <a href="${API_URL}?raw=${newId}" target="_blank" class="bg-green-600/20 text-green-400 hover:bg-green-600 hover:text-white px-3 py-2 rounded transition text-sm"><i class="fa-solid fa-file-code mr-1"></i>Raw</a>
+                                <button onclick="openEdit('${newId}')" class="bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600 hover:text-white px-3 py-2 rounded transition text-sm"><i class="fa-solid fa-pen mr-1"></i>Edit</button>
+                                <button onclick="deleteFile('${newId}')" class="bg-red-600/20 text-red-400 hover:bg-red-600 hover:text-white px-3 py-2 rounded transition text-sm"><i class="fa-solid fa-trash mr-1"></i>Delete</button>
+                            </td>
+                        </tr>
+                    `;
+                    // Table me sabse upar add kar do (NO RELOAD NEEDED)
+                    listEl.insertAdjacentHTML('afterbegin', newRow);
+                    
                 } catch (err) {
                     showToast("Upload Failed", true);
                 } finally {
@@ -257,8 +271,8 @@
                 if (!res.ok) throw new Error("Save failed");
                 
                 showToast("Updated Live!");
-                // Edit hone ke baad backend ko thoda time denge
-                setTimeout(() => showDashboard(), 1000);
+                // Edit save hone ke baad UI turant badalne ki zaroorat nahi
+                setTimeout(() => showDashboard(), 500);
             } catch (err) {
                 showToast("Error updating file.", true);
             } finally {
@@ -267,16 +281,14 @@
             }
         }
 
-        // ====== YAHAN HAI ASLI JADOO (The Fix) ======
         async function deleteFile(id) {
             if (!confirm(`Are you sure you want to delete '${id}'?`)) return;
             
-            // 1. Delete dabate hi DOM se is row ko hamesha ke liye uda do
+            // Delete dabte hi HTML se uda do
             const row = document.getElementById(`row-${id}`);
             if(row) row.remove();
             
             try {
-                // 2. Background mein API ko delete command bhej do
                 const res = await fetchLive(API_URL, { 
                     method: 'DELETE', 
                     headers: { 'Content-Type': 'application/json' },
@@ -284,13 +296,10 @@
                 });
                 
                 if (!res.ok) throw new Error("Delete failed");
-                
                 showToast("Deleted Successfully");
-                // 3. YAHAN PAR loadFiles() CALL NAHI KARENGE
-                // Database ko apne hisaab se update hone do, screen se toh item ud hi gaya hai.
+                // Background update hone do, reload nahi marenge
             } catch (err) {
                 showToast("Delete Failed", true);
-                // Agar sach mein error aaya backend se, tab list wapas manga lenge
                 loadFiles(); 
             }
         }
