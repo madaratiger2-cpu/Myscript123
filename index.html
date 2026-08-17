@@ -82,7 +82,8 @@
     </div>
 
     <script>
-        const API_URL = '/api';
+        // Changed API_URL to point directly to the Netlify Function
+        const API_URL = '/.netlify/functions/api';
 
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
@@ -130,9 +131,9 @@
             const listEl = document.getElementById('fileList');
             try {
                 const res = await fetch(API_URL);
-                if (!res.ok) throw new Error("Failed to fetch files");
+                if (!res.ok) throw new Error("Backend error (Function crash)");
                 const blobs = await res.json();
-                if (blobs.length === 0) {
+                if (!blobs || blobs.length === 0) {
                     listEl.innerHTML = `<tr><td class="p-8 text-center text-slate-500">No scripts found.</td></tr>`;
                     return;
                 }
@@ -168,7 +169,7 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ filename: file.name, content: e.target.result })
                     });
-                    if (!res.ok) throw new Error("Upload failed on server");
+                    if (!res.ok) throw new Error("Upload failed");
                     fileInput.value = "";
                     showToast("Uploaded successfully!");
                     loadFiles();
