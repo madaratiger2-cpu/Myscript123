@@ -130,6 +130,7 @@
             const listEl = document.getElementById('fileList');
             try {
                 const res = await fetch(API_URL);
+                if (!res.ok) throw new Error("Failed to fetch files");
                 const blobs = await res.json();
                 if (blobs.length === 0) {
                     listEl.innerHTML = `<tr><td class="p-8 text-center text-slate-500">No scripts found.</td></tr>`;
@@ -148,7 +149,7 @@
                 `).join('');
                 filterSearch();
             } catch (err) {
-                listEl.innerHTML = `<tr><td class="p-4 text-red-400 text-center">Error loading files</td></tr>`;
+                listEl.innerHTML = `<tr><td class="p-4 text-red-400 text-center">Error loading files: ${err.message}</td></tr>`;
             }
         }
 
@@ -164,13 +165,13 @@
                 try {
                     const res = await fetch(API_URL, {
                         method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ filename: file.name, content: e.target.result })
                     });
-                    if (res.ok) {
-                        fileInput.value = "";
-                        showToast("Uploaded successfully!");
-                        loadFiles();
-                    } else throw new Error();
+                    if (!res.ok) throw new Error("Upload failed on server");
+                    fileInput.value = "";
+                    showToast("Uploaded successfully!");
+                    loadFiles();
                 } catch (err) {
                     showToast("Upload failed.", true);
                 } finally {
@@ -184,6 +185,7 @@
         async function openEdit(id) {
             try {
                 const res = await fetch(`${API_URL}?id=${id}`);
+                if (!res.ok) throw new Error("Fetch failed");
                 const data = await res.json();
                 showEditView(data.id, data.content, data.filename);
             } catch (err) {
@@ -213,12 +215,12 @@
             try {
                 const res = await fetch(API_URL, {
                     method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ id, filename, content })
                 });
-                if (res.ok) {
-                    showToast("Changes saved!");
-                    setTimeout(() => showDashboard(), 1000);
-                } else throw new Error();
+                if (!res.ok) throw new Error("Save failed");
+                showToast("Changes saved!");
+                setTimeout(() => showDashboard(), 1000);
             } catch (err) {
                 showToast("Error saving file.", true);
             } finally {
@@ -230,7 +232,12 @@
         async function deleteFile(id) {
             if (!confirm(`Permanently delete script '${id}'?`)) return;
             try {
-                await fetch(API_URL, { method: 'DELETE', body: JSON.stringify({ id }) });
+                const res = await fetch(API_URL, { 
+                    method: 'DELETE', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id }) 
+                });
+                if (!res.ok) throw new Error("Delete failed");
                 showToast("Script deleted.");
                 loadFiles();
             } catch (err) {
