@@ -81,10 +81,10 @@
     <script>
         const API_URL = '/.netlify/functions/api';
 
-        // Master function: Hamesha fresh data layega, kabhi purana cache nahi dikhayega
+        // Cache Buster Function - Hamesha Naya Data Layega
         async function fetchLive(url, options = {}) {
             const separator = url.includes('?') ? '&' : '?';
-            const liveUrl = `${url}${separator}_t=${Date.now()}`; // Bypass cache
+            const liveUrl = `${url}${separator}_t=${Date.now()}`;
             return fetch(liveUrl, { ...options, cache: 'no-store' });
         }
 
@@ -131,10 +131,10 @@
 
             try {
                 const res = await fetchLive(API_URL);
-                if (!res.ok) throw new Error("Server communication failed");
+                if (!res.ok) throw new Error("Server Error");
                 const blobs = await res.json();
                 
-                if (!blobs || blobs.length === 0) {
+                if (!Array.isArray(blobs) || blobs.length === 0) {
                     listEl.innerHTML = `<tr><td class="p-8 text-center text-slate-500"><i class="fa-solid fa-box-open text-2xl mb-2 block"></i> No scripts found. Upload one!</td></tr>`;
                 } else {
                     listEl.innerHTML = blobs.map(blob => `
@@ -159,7 +159,7 @@
         async function uploadFile() {
             const fileInput = document.getElementById('fileInput');
             const btn = document.getElementById('uploadBtn');
-            if (!fileInput.files.length) return showToast("Bhai, pehle koi file select kar!", true);
+            if (!fileInput.files.length) return showToast("Select a file first!", true);
             
             btn.innerHTML = '<i class="fa-solid fa-spinner spin mr-2"></i>Uploading...';
             btn.disabled = true;
@@ -179,8 +179,8 @@
                     fileInput.value = "";
                     showToast("Uploaded Successfully!");
                     
-                    // Thoda delay taaki database save kar le fir list update ho
-                    setTimeout(() => loadFiles(), 500); 
+                    // Upload hone ke turant baad list refresh karega
+                    setTimeout(() => loadFiles(), 300); 
                 } catch (err) {
                     showToast("Upload Failed", true);
                 } finally {
@@ -193,7 +193,7 @@
 
         async function openEdit(id) {
             try {
-                showToast("Loading script data...");
+                showToast("Loading script...");
                 const res = await fetchLive(`${API_URL}?id=${id}`);
                 if (!res.ok) throw new Error("Fetch failed");
                 const data = await res.json();
@@ -205,7 +205,7 @@
                 document.getElementById('editFileName').value = data.filename || `script_${data.id}.lua`;
                 document.getElementById('editContent').value = data.content;
             } catch (err) {
-                showToast("Failed to load live data.", true);
+                showToast("Failed to load script data.", true);
             }
         }
 
@@ -227,7 +227,7 @@
                 if (!res.ok) throw new Error("Save failed");
                 
                 showToast("Updated Live!");
-                setTimeout(() => showDashboard(), 500);
+                setTimeout(() => showDashboard(), 300);
             } catch (err) {
                 showToast("Error updating file.", true);
             } finally {
@@ -237,10 +237,11 @@
         }
 
         async function deleteFile(id) {
-            if (!confirm(`Pakka delete karna hai '${id}' ko?`)) return;
+            if (!confirm(`Are you sure you want to delete '${id}'?`)) return;
             
-            // Delete karte hi UI se turant gayab kar de (Optimistic UI update)
-            document.getElementById(`row-${id}`).style.display = 'none';
+            // UI me se turant hata do (Smooth effect)
+            const row = document.getElementById(`row-${id}`);
+            if(row) row.style.display = 'none';
             
             try {
                 const res = await fetchLive(API_URL, { 
@@ -250,15 +251,15 @@
                 });
                 if (!res.ok) throw new Error("Delete failed");
                 
-                showToast("Script Deleted Permanently");
-                setTimeout(() => loadFiles(), 500); // Background me sach me check karne ke liye reload
+                showToast("Deleted Successfully");
+                setTimeout(() => loadFiles(), 300); // Background me confirm karne ke liye
             } catch (err) {
                 showToast("Delete Failed", true);
-                document.getElementById(`row-${id}`).style.display = 'flex'; // Wapas le aao agar delete fail hua
+                if(row) row.style.display = 'flex'; // Agar error aaye to wapas dikha do
             }
         }
 
-        // Load initially
+        // Page load hote hi files fetch karna
         loadFiles();
     </script>
 </body>
